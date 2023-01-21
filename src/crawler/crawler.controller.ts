@@ -5,13 +5,13 @@ import {
   UrlsRedirectReportSchemaRequest,
   UrlsWebCrawlReportSchemaRequest,
 } from './crawler.model.js';
-import { CrawelerService } from './crawler.service.js';
+import { CrawlerService } from './crawler.service.js';
 
 export const createRedirectUrlsReport: RequestHandler = async (req, res) => {
   const { links, userAgent, browser } =
     await UrlsRedirectReportSchemaRequest.parseAsync(req.body);
 
-  const crawlerService = new CrawelerService({ browser, userAgent });
+  const crawlerService = new CrawlerService({ browser, userAgent });
 
   await crawlerService.initService();
 
@@ -33,7 +33,7 @@ export const createWebScrawlReport: RequestHandler = async (req, res) => {
   const { browser, links, userAgent, evaluatorFunction } =
     await UrlsWebCrawlReportSchemaRequest.parseAsync(req.body);
 
-  const crawlerService = new CrawelerService({ browser, userAgent });
+  const crawlerService = new CrawlerService({ browser, userAgent });
 
   await crawlerService.initService();
 

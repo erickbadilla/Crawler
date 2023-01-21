@@ -1,12 +1,12 @@
 import playwright, { Browser, LaunchOptions, Page, Response } from 'playwright';
 import UserAgent from 'user-agents';
 
-import { chunkifyArray } from '../utils/arrays/chunk.js';
+import { chunkArray } from '../utils/arrays/index.js';
 import type { Range } from '../utils/typescript/numbers/range.js';
 
 export type TBrowserType = 'chromium' | 'firefox' | 'webkit';
 
-interface ICrawelerServiceConstructor {
+interface ICrawlerServiceConstructor {
   userAgent?: string;
   browser?: TBrowserType;
 }
@@ -42,24 +42,26 @@ interface ICheckLinkRedirects extends INavigateStatus {
 
 interface ICrawlWebPagesOptions {
   links: string[];
-  threads: Range<2, 26>;
+  threads: Range<1, 26>;
   evaluatorFunction: () => unknown;
+  options?: INavigateToLinkOptions['options'];
 }
 
 interface ICrawlPages {
   data: unknown;
+  link: string;
   error?: Error;
 }
 
-export class CrawelerService {
+export class CrawlerService {
   private static UA = new UserAgent();
 
   private readonly USER_AGENT: string;
   private readonly BROWSER_NAME: TBrowserType;
   private BROWSER: Browser;
 
-  constructor({ userAgent, browser }: ICrawelerServiceConstructor) {
-    this.USER_AGENT = userAgent ?? CrawelerService.UA.random().toString();
+  constructor({ userAgent, browser }: ICrawlerServiceConstructor) {
+    this.USER_AGENT = userAgent ?? CrawlerService.UA.random().toString();
     this.BROWSER_NAME = browser ?? 'chromium';
   }
 
@@ -91,8 +93,9 @@ export class CrawelerService {
     links,
     threads,
     evaluatorFunction: evaluateFunction,
+    options,
   }: ICrawlWebPagesOptions): Promise<ICrawlPages[]> {
-    const linkChunks = chunkifyArray(links, threads);
+    const linkChunks = chunkArray(links, threads);
 
     const linksToBeProcessed = linkChunks.map(async (linkBucket) => {
       const page = await this.openPage();
@@ -102,14 +105,18 @@ export class CrawelerService {
         const link = linkBucket[i];
 
         try {
-          await this.navigateToLink({ link, page });
+          await this.navigateToLink({ link, page, options });
           const data = await page.evaluate(evaluateFunction);
+
+          if (!data) continue;
 
           pagesPerBucket.push({
             data,
+            link,
           });
         } catch (error) {
-          pagesPerBucket.push({ data: null, error });
+          console.error(error);
+          pagesPerBucket.push({ data: null, error, link });
         }
       }
 
@@ -125,7 +132,7 @@ export class CrawelerService {
     links,
     threads,
   }: INavigateMultiplePagesOptions): Promise<ICheckLinkRedirects[]> {
-    const linkChunks = chunkifyArray(links, threads);
+    const linkChunks = chunkArray(links, threads);
 
     const linksToBeProcessed = linkChunks.map(async (linkBucket) => {
       const page = await this.openPage();
