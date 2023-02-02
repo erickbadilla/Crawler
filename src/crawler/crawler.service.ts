@@ -1,8 +1,9 @@
 import playwright, { Browser, LaunchOptions, Page, Response } from 'playwright';
 import UserAgent from 'user-agents';
 
+import { createAppError } from '../error/index.js';
+import { logger } from '../logger/index.js';
 import { chunkArray } from '../utils/arrays/index.js';
-import type { Range } from '../utils/typescript/numbers/range.js';
 
 export type TBrowserType = 'chromium' | 'firefox' | 'webkit';
 
@@ -15,42 +16,57 @@ interface IOpenPageOptions {
   userAgent?: string;
 }
 
-interface INavigateToLinkOptions {
-  link: string;
-  page: Page;
-  options?: {
-    timeoutMS?: number;
-    waitUntil?: 'networkidle' | 'domcontentloaded' | 'load' | 'commit';
-  };
+interface INavigateOptions {
+  timeoutMS?: number;
+  waitUntil?: 'networkidle' | 'domcontentloaded' | 'load' | 'commit';
 }
 
-interface INavigateMultiplePagesOptions {
-  links: string[];
-  userAgent?: string;
-  threads: Range<2, 26>;
+interface INavigateToLink {
+  link: string;
+  page: Page;
+  options?: INavigateOptions;
 }
 
 interface INavigateStatus {
   status: number;
   link: string;
-  error?: Error;
+  error?: ReturnType<typeof createAppError>;
 }
 
-interface ICheckLinkRedirects extends INavigateStatus {
+interface ICrawlerPageOptions {
+  options: INavigateOptions & { threads: number };
+}
+
+interface ICheckLinksRedirect extends ICrawlerPageOptions {
+  links: string[];
+}
+
+export interface ICheckLinkRedirectsReturn extends INavigateStatus {
   redirects: INavigateStatus[];
 }
 
-interface ICrawlWebPagesOptions {
+interface ICrawlWebPages extends ICrawlerPageOptions {
   links: string[];
-  threads: Range<1, 26>;
-  evaluatorFunction: () => unknown;
-  options?: INavigateToLinkOptions['options'];
+  dataExtractorFunction: string;
+  keepFalsyData: boolean;
 }
 
-interface ICrawlPages {
+interface ICrawlPagesReturn {
   data: unknown;
   link: string;
-  error?: Error;
+  error?: unknown;
+}
+
+interface IMatchWebPages extends ICrawlerPageOptions {
+  links: string[];
+  predicateFunction: string;
+  keepNonMatchingPages: boolean;
+}
+
+interface IMatchWebPagesReturn {
+  link: string;
+  matched: boolean;
+  error?: unknown;
 }
 
 export class CrawlerService {
@@ -58,11 +74,19 @@ export class CrawlerService {
 
   private readonly USER_AGENT: string;
   private readonly BROWSER_NAME: TBrowserType;
-  private BROWSER: Browser;
+  private BROWSER: Browser | undefined;
 
   constructor({ userAgent, browser }: ICrawlerServiceConstructor) {
     this.USER_AGENT = userAgent ?? CrawlerService.UA.random().toString();
     this.BROWSER_NAME = browser ?? 'chromium';
+  }
+
+  get userAgent(): string {
+    return this.USER_AGENT;
+  }
+
+  get browserName(): string {
+    return this.BROWSER_NAME;
   }
 
   public async initService(
@@ -71,8 +95,10 @@ export class CrawlerService {
     this.BROWSER = await playwright[this.BROWSER_NAME].launch(options);
   }
 
-  public async openPage({ userAgent }: IOpenPageOptions = {}): Promise<Page> {
-    return this.BROWSER.newPage({
+  public async openPage({ userAgent }: IOpenPageOptions = {}): Promise<
+    Page | undefined
+  > {
+    return this.BROWSER?.newPage({
       userAgent: userAgent ?? this.USER_AGENT,
     });
   }
@@ -85,38 +111,126 @@ export class CrawlerService {
     link,
     page,
     options = {},
-  }: INavigateToLinkOptions): Promise<Response> {
-    return await page.goto(link, { waitUntil: 'networkidle', ...options });
+  }: INavigateToLink): Promise<Response | null> {
+    return await page.goto(link, { waitUntil: 'load', ...options });
   }
 
-  public async crawlPages({
+  public async matchPagesByPredicate({
     links,
-    threads,
-    evaluatorFunction: evaluateFunction,
+    predicateFunction,
+    keepNonMatchingPages,
     options,
-  }: ICrawlWebPagesOptions): Promise<ICrawlPages[]> {
-    const linkChunks = chunkArray(links, threads);
+  }: IMatchWebPages): Promise<IMatchWebPagesReturn[]> {
+    const linkChunks = chunkArray(links, options.threads);
 
     const linksToBeProcessed = linkChunks.map(async (linkBucket) => {
       const page = await this.openPage();
-      const pagesPerBucket: ICrawlPages[] = [];
+
+      if (!page) {
+        throw createAppError(['Could not process links', 500]);
+      }
+
+      const pagesPerBucket: IMatchWebPagesReturn[] = new Array(
+        linkBucket.length,
+      );
 
       for (let i = 0; i < linkBucket.length; i++) {
         const link = linkBucket[i];
 
         try {
           await this.navigateToLink({ link, page, options });
-          const data = await page.evaluate(evaluateFunction);
+          const match = await page.evaluate(`(${predicateFunction})()`);
 
-          if (!data) continue;
+          if (!(typeof match === 'boolean')) {
+            pagesPerBucket.push({
+              link,
+              matched: false,
+              error: createAppError(['Function is not a predicate.', 404]),
+            });
+            continue;
+          }
+
+          if (keepNonMatchingPages) {
+            pagesPerBucket.push({
+              link,
+              matched: match,
+            });
+            continue;
+          }
+
+          if (!match) {
+            continue;
+          }
+
+          pagesPerBucket.push({
+            link,
+            matched: true,
+          });
+        } catch (error) {
+          logger.error(error);
+          pagesPerBucket.push({
+            link,
+            matched: false,
+            error: createAppError(['Could not process link.', 500]),
+          });
+        }
+      }
+
+      page.close();
+
+      return pagesPerBucket;
+    });
+
+    return (await Promise.all(linksToBeProcessed)).flat();
+  }
+
+  public async crawlPagesForData({
+    links,
+    dataExtractorFunction,
+    keepFalsyData,
+    options,
+  }: ICrawlWebPages): Promise<ICrawlPagesReturn[]> {
+    const linkChunks = chunkArray(links, options.threads);
+
+    const linksToBeProcessed = linkChunks.map(async (linkBucket) => {
+      const page = await this.openPage();
+
+      if (!page) {
+        throw createAppError(['Could not process links', 500]);
+      }
+
+      const pagesPerBucket: ICrawlPagesReturn[] = new Array(linkBucket.length);
+
+      for (let i = 0; i < linkBucket.length; i++) {
+        const link = linkBucket[i];
+
+        try {
+          await this.navigateToLink({ link, page, options });
+          const data = await page.evaluate(`(${dataExtractorFunction})()`);
+
+          if (keepFalsyData) {
+            pagesPerBucket.push({
+              data,
+              link,
+            });
+            continue;
+          }
+
+          if (!data) {
+            continue;
+          }
 
           pagesPerBucket.push({
             data,
             link,
           });
         } catch (error) {
-          console.error(error);
-          pagesPerBucket.push({ data: null, error, link });
+          logger.error(error);
+          pagesPerBucket.push({
+            data: null,
+            error: createAppError(['Could not process link.', 500]),
+            link,
+          });
         }
       }
 
@@ -130,14 +244,18 @@ export class CrawlerService {
 
   public async checkLinksRedirects({
     links,
-    threads,
-  }: INavigateMultiplePagesOptions): Promise<ICheckLinkRedirects[]> {
+    options: { threads, ...navigationOptions },
+  }: ICheckLinksRedirect): Promise<ICheckLinkRedirectsReturn[]> {
     const linkChunks = chunkArray(links, threads);
 
     const linksToBeProcessed = linkChunks.map(async (linkBucket) => {
       const page = await this.openPage();
 
-      const pagesPerBucket: ICheckLinkRedirects[] = [];
+      if (!page) {
+        throw createAppError(['Could not process links', 500]);
+      }
+
+      const pagesPerBucket: ICheckLinkRedirectsReturn[] = [];
 
       for (let i = 0; i < linkBucket.length; i++) {
         const link = linkBucket[i];
@@ -174,17 +292,26 @@ export class CrawlerService {
           const navigationStatus = await this.navigateToLink({
             link,
             page,
+            options: navigationOptions,
           });
+
+          if (!navigationStatus) {
+            throw createAppError(['Could not process link.', 500]);
+          }
 
           pagesPerBucket.push({
             status: linkStatus ?? navigationStatus.status(),
             link,
-            error: null,
             redirects,
           });
         } catch (error) {
-          //Add status when something breaks
-          pagesPerBucket.push({ status: 500, link, error, redirects: [] });
+          logger.error(error);
+          pagesPerBucket.push({
+            status: 500,
+            link,
+            error: createAppError(['Could not process link.', 500]),
+            redirects: [],
+          });
         }
       }
 
@@ -196,6 +323,6 @@ export class CrawlerService {
   }
 
   public async closeBrowser(): Promise<void> {
-    await this.BROWSER.close();
+    await this.BROWSER?.close();
   }
 }

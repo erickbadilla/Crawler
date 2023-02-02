@@ -1,14 +1,17 @@
-import { RequestHandler } from 'express';
 import { StatusCodes } from 'http-status-codes';
 
+import { createRedirectReportStream } from '../report/index.js';
+import { catchAsync } from '../utils/errors/index.js';
+
 import {
+  MatchWebPagesByPredicateSchemaRequest,
   UrlsRedirectReportSchemaRequest,
-  UrlsWebCrawlReportSchemaRequest,
+  UrlsWebCrawlDataReportSchemaRequest,
 } from './crawler.model.js';
 import { CrawlerService } from './crawler.service.js';
 
-export const createRedirectUrlsReport: RequestHandler = async (req, res) => {
-  const { links, userAgent, browser } =
+export const createRedirectUrlsReport = catchAsync(async (req, res) => {
+  const { links, userAgent, browser, options } =
     await UrlsRedirectReportSchemaRequest.parseAsync(req.body);
 
   const crawlerService = new CrawlerService({ browser, userAgent });
@@ -17,7 +20,7 @@ export const createRedirectUrlsReport: RequestHandler = async (req, res) => {
 
   const linksReport = await crawlerService.checkLinksRedirects({
     links,
-    threads: 4, //Threads make it optimal for the length of the array.
+    options,
   });
 
   await crawlerService.closeBrowser();
@@ -27,38 +30,95 @@ export const createRedirectUrlsReport: RequestHandler = async (req, res) => {
     userAgent,
     browser,
   });
-};
+});
 
-export const createWebScrawlReport: RequestHandler = async (req, res) => {
-  const { browser, links, userAgent, evaluatorFunction } =
-    await UrlsWebCrawlReportSchemaRequest.parseAsync(req.body);
+export const createRedirectUrlsExcelReport = catchAsync(async (req, res) => {
+  const { links, userAgent, browser, options } =
+    await UrlsRedirectReportSchemaRequest.parseAsync(req.body);
 
   const crawlerService = new CrawlerService({ browser, userAgent });
 
   await crawlerService.initService();
 
-  const linksReport = await crawlerService.crawlPages({
+  const linksReport = await crawlerService.checkLinksRedirects({
     links,
-    evaluatorFunction,
-    threads: 8,
+    options,
+  });
+
+  const { filename, stream } = await createRedirectReportStream(linksReport);
+
+  await crawlerService.closeBrowser();
+
+  res.setHeader(
+    'Content-Type',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  );
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename=${encodeURIComponent(
+      filename.replaceAll(/ /g, '_'),
+    )}`,
+  );
+
+  stream.pipe(res).on('finish', () => {
+    res.status(StatusCodes.OK).end();
+  });
+});
+
+export const createWebScrawlDataReport = catchAsync(async (req, res) => {
+  const {
+    browser,
+    links,
+    userAgent,
+    dataExtractorFunction,
+    keepFalsyData,
+    options,
+  } = await UrlsWebCrawlDataReportSchemaRequest.parseAsync(req.body);
+
+  const crawlerService = new CrawlerService({ browser, userAgent });
+
+  await crawlerService.initService();
+
+  const report = await crawlerService.crawlPagesForData({
+    links,
+    dataExtractorFunction,
+    keepFalsyData,
+    options,
+  });
+
+  await crawlerService.closeBrowser();
+
+  return res.status(StatusCodes.OK).json({
+    browser: crawlerService.browserName,
+    userAgent: crawlerService.userAgent,
+    report,
+  });
+});
+
+export const matchWebPagesByPredicateReport = catchAsync(async (req, res) => {
+  const {
+    browser,
+    links,
+    userAgent,
+    predicateFunction,
+    keepNonMatchingPages,
+    options,
+  } = await MatchWebPagesByPredicateSchemaRequest.parseAsync(req.body);
+
+  const crawlerService = new CrawlerService({ browser, userAgent });
+
+  await crawlerService.initService();
+
+  const report = await crawlerService.matchPagesByPredicate({
+    links,
+    predicateFunction,
+    keepNonMatchingPages,
+    options,
   });
 
   return res.status(StatusCodes.OK).json({
-    linksReport,
-    userAgent,
-    browser,
+    browser: crawlerService.browserName,
+    userAgent: crawlerService.userAgent,
+    report,
   });
-};
-
-export const createUrlsExcelReport: RequestHandler = async (req, res) => {
-  const { links, userAgent, browser } =
-    await UrlsRedirectReportSchemaRequest.parseAsync(req.body);
-
-  //Generate excel stream;
-
-  return res.status(StatusCodes.OK).json({
-    links,
-    userAgent,
-    browser,
-  });
-};
+});

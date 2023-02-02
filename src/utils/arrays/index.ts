@@ -1,5 +1,2 @@
-import { chunkArray } from "./chunk.js";
-
-export {
-    chunkArray
-}
+export { chunkArray } from './chunk.js';
+export { convertArrayToGenerator } from './iterator.js';

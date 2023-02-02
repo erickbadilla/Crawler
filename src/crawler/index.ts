@@ -1,4 +1,2 @@
-// import model from './crawler.model.js';
-// import router from './crawler.router.js';
-
-// export { model, router };
+export { default as crawlerRouter } from './crawler.router.js';
+export type { ICheckLinkRedirectsReturn } from './crawler.service.js';

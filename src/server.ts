@@ -1,43 +1,51 @@
-import { CrawelerService } from './crawler/crawler.service.js';
+import dotenv from 'dotenv';
 
-const PAGES: string[] = [
-  'https://zellwk.com/blog/async-await-in-loops/',
-  'https://dev.to/captainyossarian/typescript-type-inference-on-function-arguments-2n93',
-  'https://www.npmjs.com/package/user-agents',
-  'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/group#:~:text=The%20group()%20method%20groups,can%20be%20represented%20by%20strings.',
-  // 'https://quickbooks.intuit.com/accountants/offers/',
-  // 'https://quickbooks.intuit.com/accountants/sandbox/aag-modal-content/',
-];
+dotenv.config();
 
-const crawlerService = new CrawelerService({ browser: 'chromium' });
+import { logger } from './logger/index.js';
+import app from './app.js';
 
-await crawlerService.initService({
-  headless: false,
+process.on('uncaughtException', ({ name, message, stack }) => {
+  logger.info(`
+  Uncaught Exception 
+  Shutting server down...`);
+
+  logger.error(`
+  Error: ${name}
+  Message: ${message},
+  Stack: ${stack}
+  `);
+
+  process.exit(1);
 });
 
-const getDataFromPage = (): string => document.title;
+//Constants
+const PORT = parseInt(process.env.PORT || '4000', 10);
+const HOSTNAME = process.env.HOST_NAME || '127.0.0.1';
+const ENVIRONMENT = process.env.NODE_ENV;
 
-const pages = await crawlerService.crawlPages({
-  links: PAGES,
-  threads: 4,
-  evaluatorFunction: getDataFromPage,
+const server = app.listen(PORT, HOSTNAME, () => {
+  logger.info(`
+  Starting server on port: ${PORT} in ${HOSTNAME} on ${ENVIRONMENT}
+  `);
 });
 
-console.log(JSON.stringify(pages));
+process.on('SIGINT', () => {
+  logger.info('Shutting down server');
+  server.close(() => process.exit(1));
+});
 
-// const linkChunks = chunkifyArray(PAGES, 2);
-// console.log(linkChunks);
+process.on('unhandledRejection', ({ name, message, stack }) => {
+  logger.info(`
+  Unhandled Rejection
+  Shutting server down...
+  `);
 
-// pages.forEach(async (page) => {
-//   const p = await page;
-//   console.log(await p);
-// });
+  logger.error(`
+  Error: ${name}
+  Message: ${message},
+  Stack: ${stack}
+  `);
 
-// crawlerService.openPage().then((page) => {
-//   crawlerService
-//     .navigateToLink({
-//       link: 'https://zellwk.com/blog/async-await-in-loops/',
-//       page: page,
-//     })
-//     .then(console.log);
-// });
+  server.close(() => process.exit(1));
+});
