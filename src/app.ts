@@ -1,3 +1,4 @@
+import compression, { CompressionOptions } from 'compression';
 import cookieParser, { CookieParseOptions } from 'cookie-parser';
 import cors, { CorsOptions } from 'cors';
 import express from 'express';
@@ -32,6 +33,8 @@ const COOKIE_PARSER_OPTIONS: CookieParseOptions = {};
 
 const HPP_OPTIONS: HPPOptions = {};
 
+const COMPRESSION_OPTIONS: CompressionOptions = {};
+
 //Global Middleware
 
 app.use(cors(CORS_OPTIONS));
@@ -48,14 +51,14 @@ app.use(hpp(HPP_OPTIONS));
 
 app.use(xss());
 
-app.use((req, _, next) => {
-  req.requestTime = new Date().toISOString();
-  next();
-});
-
 //Development middleware
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
+}
+
+//Production middleware
+if (process.env.NODE_ENV === 'production') {
+  app.use(compression(COMPRESSION_OPTIONS));
 }
 
 //Routes

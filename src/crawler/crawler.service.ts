@@ -54,7 +54,7 @@ interface ICrawlWebPages extends ICrawlerPageOptions {
 interface ICrawlPagesReturn {
   data: unknown;
   link: string;
-  error?: unknown;
+  error?: ReturnType<typeof createAppError>;
 }
 
 interface IMatchWebPages extends ICrawlerPageOptions {
@@ -63,10 +63,10 @@ interface IMatchWebPages extends ICrawlerPageOptions {
   keepNonMatchingPages: boolean;
 }
 
-interface IMatchWebPagesReturn {
+export interface IMatchWebPagesReturn {
   link: string;
-  matched: boolean;
-  error?: unknown;
+  isMatched: boolean;
+  error?: ReturnType<typeof createAppError>;
 }
 
 export class CrawlerService {
@@ -144,7 +144,7 @@ export class CrawlerService {
           if (!(typeof match === 'boolean')) {
             pagesPerBucket.push({
               link,
-              matched: false,
+              isMatched: false,
               error: createAppError(['Function is not a predicate.', 404]),
             });
             continue;
@@ -153,7 +153,7 @@ export class CrawlerService {
           if (keepNonMatchingPages) {
             pagesPerBucket.push({
               link,
-              matched: match,
+              isMatched: match,
             });
             continue;
           }
@@ -164,13 +164,13 @@ export class CrawlerService {
 
           pagesPerBucket.push({
             link,
-            matched: true,
+            isMatched: true,
           });
         } catch (error) {
           logger.error(error);
           pagesPerBucket.push({
             link,
-            matched: false,
+            isMatched: false,
             error: createAppError(['Could not process link.', 500]),
           });
         }

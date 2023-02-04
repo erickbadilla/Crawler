@@ -12,4 +12,9 @@ router.post('/status-report', crawlController.createRedirectUrlsExcelReport);
 
 router.post('/match', crawlController.matchWebPagesByPredicateReport);
 
+router.post(
+  '/match-report',
+  crawlController.matchWebPagesByPredicateExcelReport,
+);
+
 export default router;

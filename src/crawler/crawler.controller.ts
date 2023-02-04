@@ -1,6 +1,10 @@
 import { StatusCodes } from 'http-status-codes';
 
-import { createRedirectReportStream } from '../report/index.js';
+import {
+  createRedirectReportStream,
+  createMatchReport,
+} from '../report/index.js';
+
 import { catchAsync } from '../utils/errors/index.js';
 
 import {
@@ -122,3 +126,46 @@ export const matchWebPagesByPredicateReport = catchAsync(async (req, res) => {
     report,
   });
 });
+
+export const matchWebPagesByPredicateExcelReport = catchAsync(
+  async (req, res) => {
+    const {
+      links,
+      userAgent,
+      browser,
+      predicateFunction,
+      keepNonMatchingPages,
+      options,
+    } = await MatchWebPagesByPredicateSchemaRequest.parseAsync(req.body);
+
+    const crawlerService = new CrawlerService({ browser, userAgent });
+
+    await crawlerService.initService();
+
+    const linksReport = await crawlerService.matchPagesByPredicate({
+      links,
+      predicateFunction,
+      keepNonMatchingPages,
+      options,
+    });
+
+    const { filename, stream } = await createMatchReport(linksReport);
+
+    await crawlerService.closeBrowser();
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=${encodeURIComponent(
+        filename.replaceAll(/ /g, '_'),
+      )}`,
+    );
+
+    stream.pipe(res).on('finish', () => {
+      res.status(StatusCodes.EXPECTATION_FAILED).end();
+    });
+  },
+);

@@ -48,12 +48,14 @@
     "prettier": "prettier --config .prettierrc --write ./src/**",
     "test:watch": "jest --watch",
     "build:minify": "npm run build:release && esbuild ./build/src/server.js --bundle --platform=node --minify --outfile=./build/minify/index.min.js",
-    "build:windows": "npm run build:minify &&  pkg -t win-x64 ./build/minify/index.min.js -o ./dist/windows/scraper",
-    "build:mac:x64": "npm run build:minify &&  pkg -t macos-x64 ./build/minify/index.min.js -o ./dist/mac/scraperX64",
-    "build:mac:arm": "npm run build:minify &&  pkg -t macos-arm64 ./build/minify/index.min.js -o ./dist/mac/scraperARM"
+    "build:windows": "npm run build:minify && set NODE_ENV=production && pkg -t win-x64 ./build/minify/index.min.js -o ./dist/windows/scraper --env NODE_ENV=production",
+    "build:mac:x64": "npm run build:minify && pkg -t macos-x64 ./build/minify/index.min.js -o ./dist/mac/scraperX64",
+    "build:mac:arm": "npm run build:minify && pkg -t macos-arm64 ./build/minify/index.min.js -o ./dist/mac/scraperARM"
   },
   "author": "Erick Badilla",
   "dependencies": {
+    "@types/compression": "^1.7.2",
+    "compression": "^1.7.4",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
